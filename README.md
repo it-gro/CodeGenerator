@@ -1,8 +1,12 @@
-# CodeGenerator
+# UTL_TEXT, including CodeGenerator
 
-Helper Package to support generating template based texts.
+Helper Package to collect String related utilities and support generating template based texts.
 
 ## What it is
+
+UTL_TEXT contains two earlier projects, UTL_TEXT and CODE_GENERATOR. UTL_TEXT contained some simple text related utilities, whereas CodeGenerator does some advanced things that need further explanation. As it turned out to be a nightmare to maintain two packages with partly overlapping functionality, I decided to combine both packages into one.
+
+The basic UTL_TEXT functionality is self explanatory and consists mainly of simple helper method to make working with string easier. The rest of this intro deals with the functionality of the CodeGenerator. Although it is now contained in UTL_TEXT, I stick to the term CodeGenerator to make clear what part of UTL_TEXT I'm referring to.
 
 CodeGenerator is a helper package to support creating text based on templates with replacement anchors. This kind of replacement is often required when generating dynamic SQL or PL/SQL-code or when putting together mail messages and the like.
 
@@ -19,7 +23,7 @@ As a standard, a replacement anchor in a template must be surrounded by `#`-sign
 
 As an example, this is a simple replacement anchor: `#SAMPLE_REPLACEMENT#`. If you intend to surround the value with brackets and pass the information `NULL` if the value is `NULL`, you may write `#SAMPLE_REPLACEMENT|(|), |NULL#` to achieve this.
 
-Should it be necessary, the replacement characters can be changed either on a case by case basis by calling setter methods or generally by adjusting initialization parameters. CodeGenerator relies on the existence of PIT to work.
+Should it be necessary, the replacement characters can be changed either on a case by case basis by calling setter methods or generally by adjusting initialization parameters, if PIT is installed. CodeGenerator works best in conjunction with PIT but may be installed without it as well. In this case, the replacement characters are set within the initialization of the package as package constants.
 
 ## Functionality
 
@@ -38,7 +42,7 @@ This method is the most basic one but it allows for the same flexibility in repl
 As a first example, consider this code snippet:
 
 ```
-SQL> select code_generator.bulk_replace('My first #1#', char_table('1', 'replacement')) result
+SQL> select utl_text.bulk_replace('My first #1#', char_table('1', 'replacement')) result
   2    from dual;
 
 RESULT
@@ -54,7 +58,7 @@ In this example, `#1#` is replaced with `replacement`, which could have been ach
 The real power comes from CodeGenerators recursive abilities. As a simple example, the replacement contains a second anchor:
 
 ```
-SQL> select code_generator.bulk_replace('A simple #1#', char_table(
+SQL> select utl_text.bulk_replace('A simple #1#', char_table(
   2           '1', 'replacement with #2#',
   3           '2', 'recursive replacements')) result
   4    from dual;
@@ -71,7 +75,7 @@ This example also shows how to include more than one replacement key-value-pair.
 To make things a bit more funny, you may extend the anchors syntax to support `NULL`-value treatment. In the following example, we want to inlude a `PRE` and `POST` before and after a non `NULL`-value and a `NULL` for any `NULL` value:
 
 ```
-SQL> select code_generator.bulk_replace(
+SQL> select utl_text.bulk_replace(
   2            'Null treatment for #1|PRE|POST|NULL# and #2|PRE|POST|NULL#',
   3            char_table(
   4             '1', ' value 1 ',
@@ -88,7 +92,7 @@ Null treatment for PRE value 1 POST and NULL
 This is the foundation for powerful string replacements as in the next example where we want to include a second value with `NULL` treatment, but only, if the first value is `NULL`. If we do this, we need a different syntax for the embedded anchor to distinguish it from the surrounding anchor. We will be using different characters which are referenced as `secondary anchor` and `secondoray replacement` chars. They allow to nest an anchor into a surrounding anchors conditional replacements:
 
 ```
-SQL> select code_generator.bulk_replace(
+SQL> select utl_text.bulk_replace(
   2            'Null treatment for #1|PRE|POST|^2~PRE~POST~NULL^#',
   3            char_table(
   4             '1', null,
@@ -104,6 +108,8 @@ Of course this does not have to be as complex as shown above. It's perfectly ok 
 
 All these options are available not only with `BULK_REPLACE`, but with `GENERATE_TEXT` and `GENEREATE_TEXT_TABLE` as well, as all of them reuse the same `BULK_REPLACE`engine underneath.
 
+`BULK_REPLACE` is available as a procedure and a function overload, plus an overload that accepts a template as a parameter and a list of replacement chunks as a PL/SQL table of type CLOB indexed by varchar2. This comes in handy if you have your replacement chunks in that format.
+
 ### GENERATE_TEXT
 
 `GENERATE_TEXT` extends the possibilites of `BULK_REPLACE` by calling the method within the context of a cursor. 
@@ -112,15 +118,15 @@ All these options are available not only with `BULK_REPLACE`, but with `GENERATE
 
 To work properly, CodeGenerator assumes several conventions:
 
-- the first column of the cursor passed into the method has to contain the template with the replacement anchors. Ideally, it's named `TEMPLATE` but that's not necessary.
-- the names of the replacement anchors must match the column names of the second to last column. We strongly advise not to include umlauts or other specific character in the names but rather KISS. All column names will be converted to uppercase.
-- If you want to log conversions, you need to provide a log template as a column named `LOG_TEMPLATE`
+- It must contain a column named `TEMPLATE` that contains the replacement template.
+- the names of the replacement anchors must match the column names of the other columns of the cursor. We strongly advise not to include umlauts or other specific character in the names but rather KISS. All column names will be converted to uppercase.
+- If you want to log conversions, you need to provide a log template as a column named `LOG_TEMPLATE`. If this column is present, UTL_TEXT will emit a message using PIT, if available, containing the converted log template, or use DBMS_OUTPUT.PUT_LINE, if PIT is not present.
 
 If a column of type `DATE` is detected, this value will be converted to `VARCHAR2` using a format mask derived from a parameter called `DEFAULT_DATE_FORMAT`. You may also choose to convert any `date` or `number` column upfront and deliver those values as `varchar2` to keep full control over the process.
 
 #### Basic Usage
 
-The following example shows how to call `GENERATE_TEXT` from within SQL. It's also possible to call it from within PL/SQL, either as a function or as a procedure. The return value is a `CLOB`:
+The following example shows how to call `GENERATE_TEXT` from within SQL. It's also possible to call it from within PL/SQL, either as a function or as a procedure. The return value is a `CLOB` instance:
 
 ```
 SQL>   with templ as (
@@ -136,7 +142,7 @@ SQL>   with templ as (
  11          union all
  12         select 'SECOND_COLUMN', 'NUMBER', null, '38,0' from dual union all
  13         select 'THIRD_COLUMN', 'INTEGER', null, null from dual)
- 14  select code_generator.generate_text(cursor(
+ 14  select utl_text.generate_text(cursor(
  15           select template, column_name, column_type, column_size, column_precision
  16             from templ
  17            cross join vals), delimiter) result
@@ -173,11 +179,11 @@ SQL>   with templ as (
  13          union all
  14         select 'SECOND_COLUMN', 'NUMBER', null, '38,0' from dual union all
  15         select 'THIRD_COLUMN', 'INTEGER', null, null from dual)
- 16  select code_generator.generate_text(cursor(
- 17         select table_template, cr,
+ 16  select utl_text.generate_text(cursor(
+ 17         select table_template template, cr,
  18                'MY_TABLE' table_name,
- 19                code_generator.generate_text(cursor(
- 20                  select col_template, column_name, column_type, column_size, column_precision
+ 19                utl_text.generate_text(cursor(
+ 20                  select col_template template, column_name, column_type, column_size, column_precision
  21                    from templ
  22                   cross join vals), cr, 2) column_list
  23           from templ)) result
@@ -191,17 +197,17 @@ CREATE TABLE MY_TABLE(
   THIRD_COLUMN INTEGER);
 ```
 
-Here you see the usage of parameter `p_indent` which is set to `2` in the example. This then means that any row, delimited by `p_delimiter` which in our case is `chr(10)`. The outcome is indented by 2 blanks at the beginning of each line. This is useful when putting together complex DML or DDL statements.
+Here you see the usage of parameter `p_indent` which is set to `2` in the example. This then means that any row, delimited by `p_delimiter` which in our case is `chr(10)`, is indented by 2 blanks at the beginning of each line. This is useful when putting together complex DML or DDL statements.
 
-To make it easy to maintain different templates, CodeGenerator ships with a table called `CODE_GENERATOR_TEMPLATES` you may use as a repository for your templates. You may use any existing or newly created table for this purpose as well or provide the template by any others means. 
+To make it easy to maintain different templates, CodeGenerator ships with a table called `UTL_TEXT_TEMPLATES` you may use as a repository for your templates. You may use any existing or newly created table for this purpose as well or provide the template by any others means. 
 
-It's not difficult to see what could happen if the replacement values and the templates are derived from tables. The logic to select the proper table per row is delegated to the join condition, the data controls how much and what information is generated. In the supplied table, three columns are provided to store templates. The first column, `CGTM_NAME` contains the name of the template. You can group together templates using column `CGTM_TYPE`. Additionally, it has proven to be very useful to be able to store different template versions by `CGTM_MODE`. This column defaults to `DEFAULT` but you may use it to distinguish different column type templates fi. As an example, you may want to store the template to cater for `DATE` columns as name `COLUMN_TEMPLATE`, type `DDL` with mode `DATE`. Doing this, you could easily join the respective template to different column types, falling back to a `DEFAULT` template if no specific template was present.
+It's not difficult to see what could happen if the replacement values and the templates are derived from tables. The logic to select the proper table per row is delegated to the join condition, the data controls how much and what information is generated. In the supplied table, three columns are provided to store templates. The first column, `UTTM_NAME` contains the name of the template. You can group together templates using column `UTTM_TYPE`. Additionally, it has proven to be very useful to be able to store different template versions by `UTTM_MODE`. This column defaults to `DEFAULT` but you may use it to distinguish different column type templates fi. As an example, you may want to store the template to cater for `DATE` columns as type `DDL`, name `COLUMN_TEMPLATE` and mode `DATE`. Doing this, you could easily join the respective template to different column types, falling back to a `DEFAULT` template if no specific template was present.
 
 #### Log Conversion
 
-Another nice feature of CodeGenerator is its ability to log conversion processes. Problem here is that only the template may know what exactly was created. Imagine a set of meta data to create tables, indexes, views etc. They all share the same meta data such as core table_name, table_suffix, column list etc. but based on the template the create different data objects with a naming convention that is built into the template. So calling a template and passing the meta data will not tell you which object exactly was created, because only the template really knows.
+Another nice feature of the CodeGenerator is its ability to log conversion processes. Problem here is that only the template may know what exactly was created. Imagine a set of meta data to create tables, indexes, views etc. They all share the same meta data such as core table_name, table_suffix, column list etc. but based on the template the create different data objects with a naming convention that is built into the template. So calling a template and passing the meta data will not tell you which object exactly was created, because only the template really knows.
 
-Therefore, a second template, called `LOG_TEMPLATE` may be passed into `GENERATE_TEXT`. The way it is passed into the method is by means of a column name convention. So if you provide the method with a column named `LOG_TEMPLATE`, it will try and find content wihtin that column. The log template is expected to be a template with replacement anchors (if any) that create the message that should be logged. If CodeGenerator finds a template, it replaces the anchors with just the same information available for the main template and logs the message using `PIT.LOG`.
+Therefore, a second template, called `LOG_TEMPLATE` may be passed into `GENERATE_TEXT`. So if you provide the method with a column named `LOG_TEMPLATE`, it will try and find content wihtin that column. The log template is expected to be a template with replacement anchors (if any) that creates the message that should be logged. If CodeGenerator finds a template, it replaces the anchors with just the same information available for the main template and logs the message using `PIT.LOG` or `DBMS_OUTPUT`, if PIT is not present.
 
 If no template is found, no logging takes place. This way you can easily control which templates log without any changes to the logic that creates the text blocks. You simply pass in the template (ideally located in a column of table CODE_GENERATOR_TEMPLATES) and off you go. As an example on how to use this, review this code:
 
@@ -227,10 +233,10 @@ begin
         union all
        select 'SECOND_COLUMN', 'NUMBER', null, '38,0' from dual union all
        select 'THIRD_COLUMN', 'INTEGER', null, null from dual)
-select code_generator.generate_text(cursor(
+select utl_text.generate_text(cursor(
        select table_template, log_template, cr,
               'MY_TABLE' table_name,
-              code_generator.generate_text(cursor(
+              utl_text.generate_text(cursor(
                 select col_template, column_name, column_type, column_size, column_precision
                   from templ
                  cross join vals), delimiter, 2) column_list
@@ -266,7 +272,7 @@ SQL> select rownum, column_value result
  12                  union all
  13                 select 'SECOND_COLUMN', 'NUMBER', null, '38,0' from dual union all
  14                 select 'THIRD_COLUMN', 'INTEGER', null, null from dual)
- 15          select code_generator.generate_text_table(cursor(
+ 15          select utl_text.generate_text_table(cursor(
  16                   select template, column_name, column_type, column_size, column_precision
  17                     from templ
  18                    cross join vals)) result
@@ -298,13 +304,14 @@ Any parameter that is preset is changeable during operation using getter and set
 - `SECONDARY_ANCHOR_CHAR`, character that is used to mark a nested anchor within another anchor. Initial value: `^`
 - `SECONDARY_SEPARATOR_CHAR`, character that is used to separate the four optional building blocks within a nested anchor. Initial value: `~`
 
+If PIT is not present, all parameters are replaced by package constants. Using the Getter/Setter is possible no matter whether PIT is present or not.
 
 ## Internationalization
 
 As CodeGenerator is based on PIT, all messages can be easily translated using PITs built in translation mechanism. Simply export the default language and translate the XLIFF-file to the target language. Then re-import this file into PIT using `PIT_ADMIN.TRANSLATE_MESSAGES` and you're done.
 
 ## Installing without PIT being present
-If you decide not to install PIT and still want to use CodeGenerator, this is possible as well, but with somewhat limited functionality:
+If you decide not to install PIT and still want to use UTL_TEXT, this is possible as well, but with somewhat limited functionality:
 
 - All parameters are constants in the `code_generator`package specification
 - Any logging will happen to the console using `dbms_output`only.
